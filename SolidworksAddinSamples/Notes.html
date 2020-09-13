@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>Working with event handlers in Solidworks Addins</title>
+        <style>
+</style>
+        
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item { list-style-type: none; } .task-list-item-checkbox { margin-left: -20px; vertical-align: middle; }
+</style>
+        
+        
+        
+    </head>
+    <body class="vscode-light">
+        <h1 id="working-with-event-handlers-in-solidworks-addins">Working with event handlers in Solidworks Addins</h1>
+<p>Engineers who use better tools tend to achieve better results. As a mechanical engineer I have always been fascinated by automation in design and how it can save hours of tedious work. So I decided to create a solidworks add-in to use at my work. However I realized things could become complex very fast. Although there are sample codes such as solidworks SDK to use as a template, there is not good documentation for it. In this article I will address some of the pitfalls in <em>Event handling</em> for a solidworks add-in.
+Events in programming world are such a powerful tool in the hands of the informed designer. However sample codes in solidworks SDK are not easy to understand and reason about. I will use a sample project here that you can download <strong>from this link on GitHub.</strong> To read through this article you need to be comfortable with the concept of event in .NET environment. If you decided to learn more about it here is a <strong>good article about events in .NET</strong></p>
+<h2 id="first-things-first">First things first</h2>
+<p>Before we continue I'd like to point out to a few important things. In solidworks some interfaces do not expose any events. But the interfaces that query-interface to them (Derive from them) do. For example <em>IModelDoc</em> is the parent of <em>ModelDoc</em> but only the child exposes the events! So we should use casting and define a helper object ro access the events as shown below.</p>
+<pre><code class="language-C#"><div>ModelDoc2 document = (ModelDoc2)addin.GetFirstDocument();
+IModelDoc myModelAbstraction = document.GetFirstModelView();
+ModelDoc myModel= (ModelDoc)myModelAbstraction;
+myModel.eventName = <span class="hljs-comment">//Attach your event handlers via delegates</span>
+</div></code></pre>
+<p>Secondly, we should subscribe to events in three levels of our addin</p>
+<ol>
+<li>Addin level</li>
+<li>Document level</li>
+<li>Model-view level</li>
+</ol>
+<p>In all of these steps we use a key-value pair to register the objects whose events are being listened to.</p>
+<blockquote>
+<p>The class hierarchy in solidworks is: ISldWorks -&gt; IModelDoc -&gt; IModelView
+to access IModelView objects you need to access <em>IModelDoc</em> first and to access <em>IModelDoc</em> you should use <em>ISldWorks</em> which is the addin itself.</p>
+</blockquote>
+<blockquote>
+<p>we use two key-value pair objects (hashtables) where the key is the object you want to subscribe to and the value is the helper class that makes subscription happen. We define two helper classes. One is used for documents and the other is used for Model-views.</p>
+</blockquote>
+<h2 id="attaching-event-handlers-to-addin">Attaching Event Handlers to Addin</h2>
+<p>Once the application is loaded we call <strong>AttachSwEvents</strong> method from <em>ConnectToSw</em> so that we can listen to events like <em>FileOpenPostNotify</em>. This way when user opens a file we (our addin) get notified and call our even handlers to do something. But there are two different scenarios that we should be aware of.</p>
+<ol>
+<li>when user opens some documents in solidworks and then starts our addin</li>
+<li>when user starts our addin first and then opens some documents in solidworks</li>
+</ol>
+<blockquote>
+<p><strong>AttachSwEvents</strong> will attach event handlers to the addin. We know that addin object is derived from <em>ISldWorks</em>. But <em>ISldWorks</em> interface does not expose any events so we should use casting to access the events in solidworks. <code>addinWithEvents = (SolidWorks.Interop.sldworks.SldWorks)addin;</code></p>
+</blockquote>
+<p>When user runs the addin and opens a file then the <em>FileOpenPostNotify</em> event will trigger the event handlers. But in case he decided to open some documents first and then run the addin we should iterate through all open documents first. This way we have a mechanism in the software to listen to all the events in solidworks documents. The <strong>AttachEventsToAllDocuments</strong> method will iterate through open documents and subscribes our event handlers to the documents and to their <em>ModleViews</em>.</p>
+<blockquote>
+<p>ModelView class is the view for each document in solidworks. It is possible to get more than one view of the same document (part, assembly).</p>
+</blockquote>
+<h2 id="attaching-event-handlers-to-documents-and-model-views">Attaching event handlers to documents and Model-views</h2>
+<p>To access events that happen in the document itself we should use a <em>ModelDoc2</em> object. We access this object from the addin instance.</p>
+<pre><code class="language-C#"><div> ModelDoc2 ThisDocument = (ModelDoc2)addin.GetFirstDocument();
+</div></code></pre>
+<p>As mentioned earlier <strong>AttachEventsToAllDocuments</strong> will iterate through documents calls <em>AttachEventHandlersToDocument</em> on each one of them. <em>AttachEventHandlersToDocument</em> uses a <em>Hashtable</em> key-value pair to register the documents that have been processed. In this hashtable the keys are the document objects and the values are instances of <strong>DocumentEventHandler</strong> class.</p>
+<h3 id="documenteventhandlercs">DocumentEventHandler.cs</h3>
+<p>This is a helper class that handles events for the documents and their model-views. There are three different classes that derive from this class. Each one handles events of a specific type of document.</p>
+<pre><code class="language-C#"><div><span class="hljs-comment">//handles events for Part documents</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title">PartEventHandler</span> : <span class="hljs-title">DocumentEventHandler</span>{} 
+
+ <span class="hljs-comment">//handles events for Assembly documents</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title">AssemblyEventHandler</span> : <span class="hljs-title">DocumentEventHandler</span>{}
+ 
+ <span class="hljs-comment">//handles events for Drawing documents</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title">DrawingEventHandler</span> : <span class="hljs-title">DocumentEventHandler</span>{}
+</div></code></pre>
+<p>In <em>DocumentEventHandler</em> you can find these methods and properties.</p>
+<p><strong>ConnectModelViews()</strong>
+This method uses a hashtable field called <em>openModelViews</em> and iterates through modelViews. In this hashtable the keys are the <em>modelView</em> and the values are <em>ModelViewHelper</em>.</p>
+<p><strong>DisconnectModelViews</strong>
+This method closes events on all currently open documents. Firstly copies the modelViews from the hashtable field to an array of objects. Then iterate through the array and detaches the event handlers from each one.</p>
+<pre><code class="language-C#"><div><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-keyword">bool</span> <span class="hljs-title">DetachEventHandlers</span>(<span class="hljs-params"></span>)</span>
+        {
+            modelView.DestroyNotify2 -= <span class="hljs-keyword">new</span> DModelViewEvents_DestroyNotify2EventHandler(OnDestroy);
+            modelView.RepaintNotify -= <span class="hljs-keyword">new</span> DModelViewEvents_RepaintNotifyEventHandler(OnRepaint);
+            parent.DetachModelViewEventHandler(modelView);
+            <span class="hljs-keyword">return</span> <span class="hljs-literal">true</span>;
+        }
+</div></code></pre>
+<h3 id="modelviewhelpercs">ModelViewHelper.cs</h3>
+<p>This is a helper class to attach event handlers to <em>ModelView</em> objects. Let us take a look at the constructor of the class</p>
+<pre><code class="language-C#"><div><span class="hljs-function"><span class="hljs-keyword">public</span> <span class="hljs-title">ModelViewHelper</span>(<span class="hljs-params">SwAddin addin, IModelView mv, DocumentEventHandler doc</span>)</span>
+		{
+			userAddin = addin;
+			modelView = (ModelView)mv;
+			iSwApp = (ISldWorks)userAddin.SwApp;
+			parent = doc;
+		}
+</div></code></pre>
+<p>It needs a <em>SwAddin</em> and <em>IModelView</em> and <em>DocumentEventHandler</em> object. This class is called from <em>DocumentEventHandler.ConnectModelViews()</em> and exposes the events of <em>ModelView</em> objects. Remember there was a hashtable to register documents with their events? In that hashtable the keys are the <em>modelView</em> and the values are <em>ModelViewHelper</em>.</p>
+<h2 id="summary">Summary</h2>
+<p>In summary, different solidworks components have their own events that we access from their objects. For example to respond to a file open event we use <em>FileOpenPostNotify</em> event from a <em>SldWorks</em> object. Similarly to trigger an action when a document is closed we use <em>DestroyNotify2</em> from document's <em>ModelView</em> object. Later when the user closes the software or the documents these events need to be unloaded. So we use two key-value pair objects (hashtables) where the key is the object you want to subscribe to and the value is the helper class that makes subscription happen. We define two helper classes. One is used for documents and the other is used for Model-views. The later is accessed from within the document helper class which in turn is accessed from main add-in object. In other words, once the addin starts we access the documents events via a helper class which itself uses another helper class to access the events of each document's model-views. When user closes a mode-view we want to un-subscribe from its events so we use <code>modelView.DestroyNotify2 -= new DModelViewEvents_DestroyNotify2EventHandler(OnDestroy);</code> and remove that object from its hashtable.</p>
+
+    </body>
+    </html>
